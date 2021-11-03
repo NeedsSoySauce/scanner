@@ -6,19 +6,28 @@ const ProgressBar = require('progress')
 
 const mask = process.argv[2]
 const port = process.argv[3]
-const concurrency = process.argv[4] || 1000
+const concurrency = process.argv[4] ? Number(process.argv[4]) : 2000
+const timeout = process.argv[5] ? Number(process.argv[5]) : 2000
 const semaphore = new Semaphore(concurrency)
 
+const helpMessage = `Error: Missing argument(s).
+
+Signature:
+node ${path.basename(__filename)} cidr port [concurrency] [timeout]
+
+Example:
+node ${path.basename(__filename)} 10.0.0.0/24 80`
+
 if (mask === undefined || port === undefined) {
-  console.error(`Error: Missing argument(s).\n\nExample:\nnode ${path.basename(__filename)} 10.0.0.0/24 80`)
+  console.error(helpMessage)
   return
 }
 
-const isPortOpen = (host, port) => {
+const isPortOpen = (host, port, timeout) => {
   return semaphore.runExclusive(() => {
     return new Promise(async (resolve, reject) => {
       const socket = new Socket()
-      socket.setTimeout(2000)
+      socket.setTimeout(timeout)
 
       const complete = (state) => {
         resolve({
@@ -103,15 +112,31 @@ class Scanner {
     }
   }
 
-  async forEach(callback, concurrency = 10) {
-    const count = 0;
-    const promises = []
+  async forEach(callback, concurrency = 10000) {
+    const iterator = this.iterator()
+    const promises = {}
 
-    for (const ip of this) {
-      promises.push(callback(ip))
-    }
+    const pool = new Promise((resolve, reject) => {
+      const doWork = (index => {
+        const { value } = iterator.next()
+        if (value) {
+          promises[index] = callback(value)
+          promises[index].finally(() => doWork(index))
+        } else {
+          resolve()
+        }
+      })
 
-    await Promise.all(promises)
+      for (let i = 0; i < concurrency; i++) {
+        doWork(i)
+      }
+    })
+
+    // Wait until there is no work left to do
+    await pool
+
+    // Wait for all running workers to finish
+    await Promise.all(Object.values(promises))
   }
 }
 
@@ -130,39 +155,16 @@ class Scanner {
   let matchCount = 0
 
   await new Scanner(mask).forEach(async (ip) => {
-    const result = await isPortOpen(ip, port)
+    const result = await isPortOpen(ip, port, timeout)
     if (result.state === 'connected') {
       bar.interrupt(`${result.host} ${result.state}`)
       matchCount++
     }
     bar.tick()
-  })
+  }, concurrency)
 
   if (!matchCount) {
     bar.interrupt("No addresses found")
   }
-
-  // bar.update(1)
-
-  // const bar = new ProgressBar(' progress [:bar:] :percent :etas', {
-  //   total: size,
-  //   incomplete: ' ',
-  //   width: 20,
-  //   clear: true
-  // })
-
-  // let matchCount = 0
-
-  // await ipRange(mask).forEach(async ip => {
-  //   const result = await isPortOpen(ip, port, () => bar.tick())
-  //   if (result.state === 'connected') {
-  //     console.log(`${result.host} ${result.state}`)
-  //     matchCount++
-  //   }
-  // })
-
-  // if (!matchCount) {
-  //   console.log("No addresses found")
-  // }
 })().catch(e => console.error(e))
 
