@@ -43,7 +43,7 @@ const isPortOpen = (host, port, timeout) => {
       }
 
       socket.on('connect', () => {
-        socket.write("Hello World!")
+        socket.write("Hello World!", 'utf8')
         complete('connected')
       })
       socket.on('close', () => complete('closed'))
@@ -145,7 +145,7 @@ class Scanner {
   console.log(`Mask ${mask} includes ${size} IP addresses`)
   console.log(`Checking ${size} addresses on port ${port}`)
 
-  const bar = new ProgressBar(' progress [:bar:] :percent :etas', {
+  const bar = new ProgressBar(' :current / :total [:bar] :percent :etas :rate/s', {
     total: size,
     incomplete: ' ',
     width: 20,
